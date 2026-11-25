@@ -54,7 +54,8 @@ is in the [`1.0.0-rc.0`](#100-rc0---2026-05-26) entry below.
 - `Lua.set_deadline/2` and `Lua.deadline/1`: past a `System.monotonic_time(:millisecond)`
   deadline, running Lua raises a catchable `"deadline exceeded"` error, checked at loop
   back-edges and call boundaries like `:max_instructions`. A `pcall` that traps it is
-  interrupted again on its next tick, so the error reaches the host, which can give a
+  interrupted again on any further loop or call. It is a soft limit: Lua callbacks run by
+  the standard library and pattern matching are not interrupted. A host can give a
   nested call from an Elixir function its own deadline (a `lua_sethook` count hook in
   reference Lua). Without a deadline the hot path is unchanged.
 

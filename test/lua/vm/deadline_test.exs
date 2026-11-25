@@ -117,4 +117,29 @@ defmodule Lua.VM.DeadlineTest do
     assert message =~ "deadline exceeded"
     assert total == 5_000_050_000
   end
+
+  test ":passed can be set back, so a saved deadline always restores" do
+    lua = Lua.set_deadline(Lua.new(), :passed)
+    assert Lua.deadline(lua) == :passed
+    assert Lua.deadline(Lua.set_deadline(lua, Lua.deadline(lua))) == :passed
+  end
+
+  test "a host restores the outer deadline after a pcall trapped it" do
+    lua =
+      Lua.set!(Lua.new(), [:host_call], fn [callback], lua ->
+        outer = Lua.deadline(lua)
+        nested = Lua.set_deadline(lua, :infinity)
+        {:ok, _values, nested} = Lua.call_function(nested, callback, [])
+        {[outer == :passed], Lua.set_deadline(nested, outer)}
+      end)
+
+    assert_raise RuntimeException, ~r/deadline exceeded/, fn ->
+      Lua.eval!(passed(lua), """
+      pcall(function() while true do end end)
+      local passed = host_call(function() return 1 end)
+      local function f() return passed end
+      return f()
+      """)
+    end
+  end
 end

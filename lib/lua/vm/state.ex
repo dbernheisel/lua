@@ -8,8 +8,9 @@ defmodule Lua.VM.State do
   alias Lua.VM.Table
 
   # How many ticks pass between reads of the clock while a deadline is set: a
-  # tick is a loop iteration or a call, so this bounds the overrun to roughly
-  # a few hundred of them without reading the clock on every one.
+  # tick is a loop iteration or a call, so the clock is read once per stride
+  # rather than on every one. It counts ticks, not time: work between ticks
+  # is not bounded.
   @deadline_stride 256
 
   @doc false
