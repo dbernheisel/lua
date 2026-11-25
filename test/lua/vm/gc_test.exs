@@ -440,6 +440,110 @@ defmodule Lua.VM.GCTest do
     end
   end
 
+  describe "gc_reentrant/2 followed by a caught error" do
+    # The protected call's entry state predates the fence. Recovering from the
+    # error must keep the collector's bookkeeping from the raise site, or a
+    # minor collection frees objects the heap still holds live.
+    @step "function step() for i = 1, 50 do local t = {i} end return 1 end"
+
+    defp serving(lua) do
+      Lua.set!(lua, [:serve], fn _args, lua ->
+        Lua.gc_reentrant(lua, fn lua ->
+          {:ok, results, lua} = Lua.call_function(lua, [:step], [])
+          {results, lua}
+        end)
+      end)
+    end
+
+    test "a table written into an old table before the fence survives a pcall error after it" do
+      {_, lua} = Lua.eval!(serving(Lua.new()), @step <> " holder = {}")
+      lua = Lua.gc(lua, mode: :major)
+
+      {[false], lua} =
+        Lua.eval!(lua, """
+        local ok = pcall(function()
+          holder.x = {v = 7}
+          serve()
+          error("boom")
+        end)
+        return ok
+        """)
+
+      assert_minor_keeps_live(lua)
+      lua = Lua.gc(lua, mode: :minor)
+      assert {[7], _} = Lua.eval!(lua, "return holder.x.v")
+    end
+
+    test "the same through the message handler of xpcall" do
+      {_, lua} = Lua.eval!(serving(Lua.new()), @step <> " holder = {}")
+      lua = Lua.gc(lua, mode: :major)
+
+      {[false], lua} =
+        Lua.eval!(lua, """
+        local ok = xpcall(function()
+          holder.x = {v = 7}
+          serve()
+          error("boom")
+        end, function(msg) return msg end)
+        return ok
+        """)
+
+      assert_minor_keeps_live(lua)
+      lua = Lua.gc(lua, mode: :minor)
+      assert {[7], _} = Lua.eval!(lua, "return holder.x.v")
+    end
+
+    test "the same through Lua.call_function's error path" do
+      {_, lua} =
+        Lua.eval!(
+          serving(Lua.new()),
+          @step <> " holder = {} function f() holder.x = {v = 7} serve() error('boom') end"
+        )
+
+      lua = Lua.gc(lua, mode: :major)
+      {:error, _, lua} = Lua.call_function(lua, [:f], [])
+      assert lua.state.entry_depth == 0
+
+      assert_minor_keeps_live(lua)
+      lua = Lua.gc(lua, mode: :minor)
+      assert {[7], _} = Lua.eval!(lua, "return holder.x.v")
+    end
+
+    test "a closure cell created before the fence survives a pcall error after it" do
+      {_, lua} = Lua.eval!(serving(Lua.new()), @step <> " holder = {}")
+      lua = Lua.gc(lua, mode: :major)
+
+      {_, lua} =
+        Lua.eval!(lua, """
+        pcall(function()
+          local t = {v = 7}
+          holder.f = function() return t end
+          serve()
+          error("boom")
+        end)
+        """)
+
+      assert_minor_keeps_live(lua)
+      lua = Lua.gc(lua, mode: :minor)
+      assert {[7], _} = Lua.eval!(lua, "return holder.f().v")
+    end
+
+    test "a closure cell survives a Lua.call_function error after the fence" do
+      {_, lua} =
+        Lua.eval!(
+          serving(Lua.new()),
+          @step <> " holder = {} function f() local n = 42 holder.g = function() return n end serve() error('boom') end"
+        )
+
+      lua = Lua.gc(lua, mode: :major)
+      {:error, _, lua} = Lua.call_function(lua, [:f], [])
+
+      assert_minor_keeps_live(lua)
+      lua = Lua.gc(lua, mode: :minor)
+      assert {[42], _} = Lua.eval!(lua, "return holder.g()")
+    end
+  end
+
   test "is allowed again after a call returns or raises" do
     {_, lua} = Lua.eval!(Lua.new(), "function boom() error('x') end")
     {[false, _], lua} = Lua.eval!(lua, "return pcall(boom)")

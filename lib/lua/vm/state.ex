@@ -188,7 +188,14 @@ defmodule Lua.VM.State do
   | `tables`, `table_next_id`              | `call_stack`, `call_depth`, `entry_depth` |
   | `userdata`, `userdata_next_id`         | `open_upvalues`                 |
   | `metatables`, `upvalue_cells`, `private` | `multi_return_count`          |
-  | `gc_remembered`                        |                                 |
+  | `gc_remembered`, `gc_young_from`, `gc` |                                 |
+
+  The collector's bookkeeping (`gc_young_from`, `gc_remembered` and the
+  `gc` map holding `old_cells`) describes the heap, so it travels with the
+  heap fields. `Lua.gc_reentrant/2` can collect or fence while a protected
+  call is still open; restoring any of the three from `entry` would
+  disagree with `raised.tables` and let the next minor collection free
+  objects that are still live.
 
   The instruction tally `instruction_count` is also carried forward (monotonic max), not
   reset to the entry value: the work a protected call burned must still count
@@ -217,6 +224,8 @@ defmodule Lua.VM.State do
         upvalue_cells: raised.upvalue_cells,
         private: raised.private,
         gc_remembered: raised.gc_remembered,
+        gc_young_from: raised.gc_young_from,
+        gc: raised.gc,
         instruction_count: max(entry.instruction_count, raised.instruction_count)
     }
   end
