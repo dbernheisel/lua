@@ -1199,6 +1199,11 @@ defmodule Lua do
   by Elixir code is **not** a root and may dangle afterwards — pass it in
   `:keep`, or store it in a global first.
 
+  Weak tables are not supported: a table whose metatable sets `__mode` is
+  traced as a strong table, so its entries are never cleared. A `__gc`
+  metamethod is never called, even when its table is freed. Lua code cannot
+  trigger a collection either, since `collectgarbage()` stays a no-op.
+
   Must be called between evaluations, not from inside an Elixir callback
   that Lua is running.
 
