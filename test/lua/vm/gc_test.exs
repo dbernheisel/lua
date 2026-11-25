@@ -220,6 +220,31 @@ defmodule Lua.VM.GCTest do
     end
   end
 
+  describe "auto pacing and userdata" do
+    test "a minor collection frees young unreachable userdata" do
+      {_, lua} = Lua.eval!(Lua.new(), "x = 1")
+      lua = Lua.gc(lua, mode: :major)
+      {_ud, lua} = Lua.encode!(lua, {:userdata, :garbage})
+      {keep, lua} = Lua.encode!(lua, {:userdata, :kept})
+      lua = Lua.set!(lua, [:holder], keep)
+      assert map_size(lua.state.userdata) == 2
+
+      lua = Lua.gc(lua, mode: :minor)
+      assert map_size(lua.state.userdata) == 1
+    end
+
+    test "auto checks the major threshold even when few objects are young" do
+      {_, lua} = Lua.eval!(Lua.new(), "keep = {} for i = 1, 50 do keep[i] = {} end")
+      lua = Lua.gc(lua, mode: :major)
+      assert lua.state.gc.major_at > 0
+      lua = put_in(lua.state.gc.major_at, 10)
+
+      {_, lua} = Lua.eval!(lua, "for i = 1, 5 do keep[i] = nil end")
+      lua = Lua.gc(lua)
+      assert lua.state.gc.major_at > 10
+    end
+  end
+
   describe "roots" do
     test "a Lua.set! callback keeps the tables it captured alive" do
       {[t], lua} = Lua.eval!(Lua.new(), "return {x = 1}", decode: false)
