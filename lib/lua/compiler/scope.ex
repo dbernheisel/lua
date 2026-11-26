@@ -706,7 +706,11 @@ defmodule Lua.Compiler.Scope do
         next_register: next_param_reg,
         current_function: func_key,
         parent_scopes: [parent_scope_entry | state.parent_scopes],
-        captured_locals: MapSet.new(),
+        # A function's own `_ENV` (a parameter or `local _ENV`) is treated as
+        # captured from the start, as the chunk's is: a closure created later
+        # in a loop can then never reuse an open cell that a plain register
+        # write to `_ENV` did not update.
+        captured_locals: MapSet.new(["_ENV"]),
         block_path: []
     }
 
@@ -718,25 +722,6 @@ defmodule Lua.Compiler.Scope do
     }
 
     state = %{state | functions: Map.put(state.functions, func_key, func_scope)}
-
-    # Every nested function inherits `_ENV` as an upvalue. Resolve it
-    # eagerly before the body is processed so codegen paths that read
-    # free names through `_ENV` can rely on the upvalue being present
-    # with a known index. A parameter or `local _ENV = ...` still takes
-    # precedence for free-name resolution, which is the correct Lua 5.3
-    # behaviour.
-    state =
-      if Map.has_key?(state.locals, "_ENV") do
-        # `_ENV` is a parameter — no upvalue allocation needed at this entry
-        # point. Inner local rebinds will be handled by normal scope rules.
-        state
-      else
-        case find_upvalue("_ENV", state.parent_scopes, state) do
-          {:ok, _index, state} -> state
-          # Should not happen: chunk always defines `_ENV` as a local.
-          :not_found -> state
-        end
-      end
 
     # Resolve the function body
     state = resolve_block(body, state)
