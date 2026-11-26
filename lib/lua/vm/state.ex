@@ -26,8 +26,8 @@ defmodule Lua.VM.State do
             # `Lua.VM.GC` refuses to collect while host entry points are active.
             # `call_stack` cannot replace this count: some native callbacks see it empty.
             entry_depth: 0,
-            # Ceiling for any single string the VM will build (`..`,
-            # `string.rep`, `load` reader chunks). Defaults to the practical
+            # Ceiling for any single string the VM will build (`..` and the
+            # string-building stdlib functions). Defaults to the practical
             # bound in `Lua.VM.Limits`. Embedders running the VM under a
             # process heap cap (`:max_heap_size`) should set this below that
             # cap so an allocation bomb is refused deterministically instead
