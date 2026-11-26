@@ -35,8 +35,8 @@ defmodule Lua.VM.State do
             # `Lua.VM.GC` refuses to collect while host entry points are active.
             # `call_stack` cannot replace this count: some native callbacks see it empty.
             entry_depth: 0,
-            # Ceiling for any single string the VM will build (`..`,
-            # `string.rep`, `load` reader chunks). Defaults to the practical
+            # Ceiling for any single string the VM will build (`..` and the
+            # string-building stdlib functions). Defaults to the practical
             # bound in `Lua.VM.Limits`. Embedders running the VM under a
             # process heap cap (`:max_heap_size`) should set this below that
             # cap so an allocation bomb is refused deterministically instead
@@ -237,7 +237,14 @@ defmodule Lua.VM.State do
   | `tables`, `table_next_id`              | `call_stack`, `call_depth`, `entry_depth` |
   | `userdata`, `userdata_next_id`         | `open_upvalues`                 |
   | `metatables`, `upvalue_cells`, `private` | `multi_return_count`          |
-  | `gc_remembered`                        |                                 |
+  | `gc_remembered`, `gc_young_from`, `gc` |                                 |
+
+  The collector's bookkeeping (`gc_young_from`, `gc_remembered` and the
+  `gc` map holding `old_cells`) describes the heap, so it travels with the
+  heap fields. `Lua.gc_reentrant/2` can collect or fence while a protected
+  call is still open; restoring any of the three from `entry` would
+  disagree with `raised.tables` and let the next minor collection free
+  objects that are still live.
 
   The instruction tally `instruction_count` is also carried forward (monotonic max), not
   reset to the entry value: the work a protected call burned must still count
@@ -269,6 +276,8 @@ defmodule Lua.VM.State do
         upvalue_cells: raised.upvalue_cells,
         private: raised.private,
         gc_remembered: raised.gc_remembered,
+        gc_young_from: raised.gc_young_from,
+        gc: raised.gc,
         instruction_count: max(entry.instruction_count, raised.instruction_count),
         deadline: kept_deadline(entry.deadline, raised.deadline)
     }

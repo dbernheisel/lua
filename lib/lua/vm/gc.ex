@@ -82,7 +82,7 @@ defmodule Lua.VM.GC do
 
   def collect(%State{} = state, keep, :auto) do
     if young_count(state) < @minor_after do
-      state
+      maybe_major(state, keep)
     else
       state |> minor(keep) |> maybe_major(keep)
     end
@@ -142,7 +142,7 @@ defmodule Lua.VM.GC do
 
     old_cell_values = for {ref, _} <- gc.old_cells, do: Map.fetch!(state.upvalue_cells, ref)
 
-    {tables, cells, _userdata} =
+    {tables, cells, userdata} =
       drain([roots(state, keep), remembered, old_cell_values], ctx, {%{}, %{}, %{}})
 
     dead_tables =
@@ -154,10 +154,14 @@ defmodule Lua.VM.GC do
           not is_map_key(cells, ref),
           do: ref
 
+    dead_userdata =
+      for {id, _} <- state.userdata, id >= gc.userdata_from, not is_map_key(userdata, id), do: id
+
     %{
       state
       | tables: Map.drop(state.tables, dead_tables),
         upvalue_cells: Map.drop(state.upvalue_cells, dead_cells),
+        userdata: Map.drop(state.userdata, dead_userdata),
         gc_young_from: state.table_next_id,
         gc_remembered: %{},
         gc: %{gc | old_cells: Map.merge(gc.old_cells, cells), userdata_from: state.userdata_next_id}

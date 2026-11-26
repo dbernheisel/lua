@@ -104,7 +104,8 @@ defmodule Lua do
         true
 
   * `:max_string_bytes` - (default 256 MiB) ceiling for any single string the VM will build,
-    whether via `..`, `string.rep`, or a `load` reader. An oversized result raises a catchable
+    whether via `..`, `string.rep`, `string.format`, `string.gsub`, `string.pack`,
+    `table.concat`, `os.date`, or a `load` reader. An oversized result raises a catchable
     `"resulting string too large"` error — the size is computed *before* allocating, so the
     bomb is refused rather than detected after the fact. Accepts a positive integer or
     `:infinity` for no limit (matching `:max_call_depth` and `:max_instructions`).
@@ -1242,6 +1243,11 @@ defmodule Lua do
   callbacks or `:keep` survives. A table or function reference held only
   by Elixir code is **not** a root and may dangle afterwards — pass it in
   `:keep`, or store it in a global first.
+
+  Weak tables are not supported: a table whose metatable sets `__mode` is
+  traced as a strong table, so its entries are never cleared. A `__gc`
+  metamethod is never called, even when its table is freed. Lua code cannot
+  trigger a collection either, since `collectgarbage()` stays a no-op.
 
   Must be called between evaluations, not from inside an Elixir callback
   that Lua is running.
