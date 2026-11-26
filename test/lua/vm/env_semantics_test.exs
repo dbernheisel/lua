@@ -12,9 +12,8 @@ defmodule Lua.VM.EnvSemanticsTest do
   # In our implementation, the chunk reserves register 0 for `_ENV` and
   # binds it to `_G` at startup via the `:load_env` opcode. Free names in
   # the chunk compile to `_ENV.name` (`get_field`/`set_field` against
-  # register 0). Nested functions inherit `_ENV` via the standard upvalue
-  # chain, allocated eagerly during scope resolution so every function
-  # has access regardless of which free names it references.
+  # register 0). A nested function captures `_ENV` through the standard
+  # upvalue chain on its first free-name reference, as PUC-Lua does.
 
   setup do
     %{lua: Lua.new(sandboxed: [])}
@@ -115,6 +114,48 @@ defmodule Lua.VM.EnvSemanticsTest do
       """
 
       assert {[true], _} = Lua.eval!(lua, code)
+    end
+  end
+
+  describe "a function that rebinds its own _ENV in a loop" do
+    test "a later closure reads the rebound table on every pass (for loop)", %{lua: lua} do
+      code = """
+      local function f(_ENV)
+        local out = {}
+        local k = 0
+        local a = function() return k end
+        for i = 1, 2 do
+          _ENV = {v = i}
+          local g = function() return v end
+          out[i] = g()
+        end
+        return out[1] .. "," .. out[2]
+      end
+      return f({})
+      """
+
+      assert {["1,2"], _} = Lua.eval!(lua, code)
+    end
+
+    test "a later closure reads the rebound table on every pass (goto loop)", %{lua: lua} do
+      code = """
+      local function f(_ENV)
+        local out = {}
+        local k = 0
+        local a = function() return k end
+        local i = 1
+        ::again::
+        _ENV = {v = i}
+        local g = function() return v end
+        out[i] = g()
+        i = i + 1
+        if i <= 2 then goto again end
+        return out[1] .. "," .. out[2]
+      end
+      return f({})
+      """
+
+      assert {["1,2"], _} = Lua.eval!(lua, code)
     end
   end
 end
